@@ -11,12 +11,15 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.example.ui.common.AppLanguage
 import com.example.ui.common.Strings
@@ -48,6 +52,7 @@ import com.example.ui.theme.BrownTextTitle
 import com.example.ui.theme.JeeExamTheme
 import com.example.ui.theme.PureWhite
 import com.example.ui.theme.StatusCrimson
+import com.example.ui.theme.StatusEmerald
 import com.example.ui.theme.WarmBackground
 import com.example.ui.viewmodel.JeeViewModel
 import com.example.ui.viewmodel.Screen
@@ -143,23 +148,35 @@ fun JeeApp(viewModel: JeeViewModel = viewModel()) {
                 )
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        showExitExamDialog = false
-                        viewModel.submitExam()
-                    },
-                    colors = ButtonDefaults.buttonColors(containerColor = StatusCrimson),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.bouncyClickable {
-                        showExitExamDialog = false
-                        viewModel.submitExam()
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = {
+                            showExitExamDialog = false
+                            viewModel.discardActiveExam()
+                        },
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            text = if (lang == AppLanguage.ENGLISH) "Quit Test" else "रद्द करें",
+                            color = StatusCrimson,
+                            fontSize = 11.sp
+                        )
                     }
-                ) {
-                    Text(
-                        text = Strings.submitTest(lang),
-                        color = PureWhite,
-                        fontWeight = FontWeight.Bold
-                    )
+                    Button(
+                        onClick = {
+                            showExitExamDialog = false
+                            viewModel.submitExam()
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = StatusEmerald),
+                        shape = RoundedCornerShape(10.dp)
+                    ) {
+                        Text(
+                            text = Strings.submitTest(lang),
+                            color = PureWhite,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 12.sp
+                        )
+                    }
                 }
             },
             dismissButton = {

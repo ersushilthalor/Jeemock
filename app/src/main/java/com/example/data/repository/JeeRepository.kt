@@ -20,6 +20,7 @@ class JeeRepository(
 ) {
     private val questionDao = database.questionDao()
     private val testSessionDao = database.testSessionDao()
+    private val activeExamDao = database.activeExamDao()
 
     suspend fun initializeDatabaseIfNeeded() {
         val count = questionDao.getGenuinePyqCount()
@@ -29,7 +30,7 @@ class JeeRepository(
     }
 
     suspend fun getGenuinePyqTest(
-        pattern: ExamPattern,
+        pattern: ExamPattern = ExamPattern.JEE_MAIN,
         subject: Subject? = null,
         limit: Int = 10
     ): List<Question> {
@@ -37,15 +38,13 @@ class JeeRepository(
         val allPyqs = if (subject != null) {
             questionDao.getGenuinePyqsBySubject(subject)
         } else {
-            questionDao.getGenuinePyqsByPattern(pattern).ifEmpty {
-                questionDao.getGenuinePyqs()
-            }
+            questionDao.getGenuinePyqs()
         }
         return allPyqs.shuffled().take(limit)
     }
 
     suspend fun generateAiTest(
-        pattern: ExamPattern,
+        pattern: ExamPattern = ExamPattern.JEE_MAIN,
         subject: Subject?,
         chapters: List<String>,
         difficulty: Difficulty,
@@ -53,13 +52,11 @@ class JeeRepository(
     ): List<Question> {
         initializeDatabaseIfNeeded()
         val existingQuestions = questionDao.getGenuinePyqs()
-        val signatures = existingQuestions.map {
-            it.textEn.lowercase().filter { ch -> ch.isLetterOrDigit() }.take(60)
-        }.toSet()
+        val signatures = existingQuestions.map { it.textEn }.toSet()
 
         val generated = GeminiService.generatePersonalizedQuestions(
             context = context,
-            pattern = pattern,
+            pattern = ExamPattern.JEE_MAIN,
             subject = subject,
             chapters = chapters,
             difficulty = difficulty,
@@ -67,13 +64,15 @@ class JeeRepository(
             existingQuestionSignatures = signatures
         )
 
-        // Cache generated questions into DB for reference
-        questionDao.insertAll(generated)
+        // Only persist valid, high-quality questions into DB
+        if (generated.isNotEmpty()) {
+            questionDao.insertAll(generated)
+        }
         return generated
     }
 
     suspend fun generateOfflinePyqTest(
-        pattern: ExamPattern,
+        pattern: ExamPattern = ExamPattern.JEE_MAIN,
         subject: Subject?,
         chapters: List<String>,
         difficulty: Difficulty,
@@ -83,9 +82,7 @@ class JeeRepository(
         val allPyqs = if (subject != null) {
             questionDao.getGenuinePyqsBySubject(subject)
         } else {
-            questionDao.getGenuinePyqsByPattern(pattern).ifEmpty {
-                questionDao.getGenuinePyqs()
-            }
+            questionDao.getGenuinePyqs()
         }
 
         // Filter by chapters if selected
@@ -105,90 +102,54 @@ class JeeRepository(
 
     suspend fun submitTestSession(
         title: String,
-        pattern: ExamPattern,
+        pattern: ExamPattern = ExamPattern.JEE_MAIN,
         source: TestSource,
         durationMinutes: Int,
         timeSpentSeconds: Long,
         attempts: List<QuestionAttempt>
     ): TestSession {
-        var score = 0
-        var correctCount = 0
-        var wrongCount = 0
-        var unattemptedCount = 0
-        val maxScore = attempts.sumOf { it.question.positiveMarks }
-
-        val chapterMistakes = mutableMapOf<String, Int>()
-        val chapterSuccesses = mutableMapOf<String, Int>()
-
-        for (attempt in attempts) {
-            val q = attempt.question
-            val userAns = attempt.selectedOption?.trim()?.uppercase()
-            val correctAns = q.correctAnswer.trim().uppercase()
-
-            if (userAns.isNullOrBlank()) {
-                unattemptedCount++
-            } else {
-                val isCorrect = if (q.questionType == com.example.data.model.QuestionType.NUMERICAL) {
-                    val userNum = userAns.toDoubleOrNull()
-                    val correctNum = correctAns.toDoubleOrNull()
-                    if (userNum != null && correctNum != null) {
-                        Math.abs(userNum - correctNum) < 0.05
-                    } else {
-                        userAns == correctAns
-                    }
-                } else {
-                    userAns == correctAns
-                }
-
-                if (isCorrect) {
-                    correctCount++
-                    score += q.positiveMarks
-                    chapterSuccesses[q.chapter] = (chapterSuccesses[q.chapter] ?: 0) + 1
-                } else {
-                    wrongCount++
-                    score -= q.negativeMarks
-                    chapterMistakes[q.chapter] = (chapterMistakes[q.chapter] ?: 0) + 1
-                }
-            }
-        }
-
-        val totalAttempted = correctCount + wrongCount
-        val accuracy = if (totalAttempted > 0) {
-            (correctCount.toFloat() / totalAttempted.toFloat()) * 100f
-        } else {
-            0f
-        }
-
-        // Identify weak topics where mistakes >= successes or errors > 0
-        val identifiedWeak = mutableListOf<String>()
-        chapterMistakes.forEach { (chapter, mistakes) ->
-            val correct = chapterSuccesses[chapter] ?: 0
-            if (mistakes > correct || mistakes >= 1) {
-                identifiedWeak.add(chapter)
-            }
-        }
+        // Use deterministic, robust scoring engine without arbitrary 0.05 tolerance
+        val scoring = com.example.data.model.JeeScoringEngine.calculateTestScore(attempts)
 
         val session = TestSession(
             id = UUID.randomUUID().toString(),
             title = title,
-            examPattern = pattern,
+            examPattern = ExamPattern.JEE_MAIN,
             totalQuestions = attempts.size,
             durationMinutes = durationMinutes,
             timeSpentSeconds = timeSpentSeconds,
-            totalMarks = maxScore,
-            score = score,
-            correctCount = correctCount,
-            wrongCount = wrongCount,
-            unattemptedCount = unattemptedCount,
-            accuracy = accuracy,
+            totalMarks = scoring.totalMarks,
+            score = scoring.score,
+            correctCount = scoring.correctCount,
+            wrongCount = scoring.wrongCount,
+            unattemptedCount = scoring.unattemptedCount,
+            accuracy = scoring.accuracy,
+            percentage = scoring.percentage,
             timestamp = System.currentTimeMillis(),
             source = source,
-            weakTopics = identifiedWeak,
-            isCompleted = true
+            weakTopics = scoring.weakTopics,
+            isCompleted = true,
+            subjectBreakdownJson = scoring.subjectBreakdownJson,
+            chapterBreakdownJson = scoring.chapterBreakdownJson,
+            topicBreakdownJson = scoring.topicBreakdownJson
         )
 
         testSessionDao.insertSession(session)
+        // Clear active exam on successful submit
+        activeExamDao.clearActiveExam()
         return session
+    }
+
+    suspend fun saveActiveExamState(state: com.example.data.model.ActiveExamState) {
+        activeExamDao.saveActiveExam(state)
+    }
+
+    suspend fun getActiveExamState(): com.example.data.model.ActiveExamState? {
+        return activeExamDao.getActiveExam()
+    }
+
+    suspend fun clearActiveExamState() {
+        activeExamDao.clearActiveExam()
     }
 
     fun getAllSessions(): Flow<List<TestSession>> = testSessionDao.getAllSessions()

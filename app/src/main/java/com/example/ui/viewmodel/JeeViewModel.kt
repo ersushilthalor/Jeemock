@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.local.ApiKeyPreferences
 import com.example.data.local.JeeDatabase
+import com.example.data.model.ActiveExamState
 import com.example.data.model.Difficulty
 import com.example.data.model.ExamPattern
 import com.example.data.model.Question
@@ -147,11 +148,48 @@ class JeeViewModel(application: Application) : AndroidViewModel(application) {
 
     private var timerJob: Job? = null
     private var testStartDurationMinutes: Int = 20
+    private var targetEndTimeMillis: Long = 0L
 
     init {
         viewModelScope.launch {
             repository.initializeDatabaseIfNeeded()
             loadChaptersForSubject(null)
+
+            // Restore in-progress active test if app restarts or process died
+            try {
+                val savedActiveExam = repository.getActiveExamState()
+                if (savedActiveExam != null && savedActiveExam.isInProgress) {
+                    val now = System.currentTimeMillis()
+                    if (savedActiveExam.targetEndTimeMillis > now) {
+                        val restoredAttempts = savedActiveExam.toAttempts()
+                        if (restoredAttempts.isNotEmpty()) {
+                            _activeTestTitle.value = savedActiveExam.title
+                            _activeTestSource.value = try {
+                                TestSource.valueOf(savedActiveExam.source)
+                            } catch (e: Exception) {
+                                TestSource.GENUINE_PYQ
+                            }
+                            _activePattern.value = ExamPattern.JEE_MAIN
+                            testStartDurationMinutes = savedActiveExam.durationMinutes
+                            targetEndTimeMillis = savedActiveExam.targetEndTimeMillis
+                            _timeRemainingSeconds.value = (savedActiveExam.targetEndTimeMillis - now) / 1000L
+                            _currentQuestionIndex.value = savedActiveExam.currentQuestionIndex.coerceIn(0, restoredAttempts.size - 1)
+                            _activeSectionFilter.value = savedActiveExam.activeSectionFilter?.let {
+                                try { Subject.valueOf(it) } catch (e: Exception) { null }
+                            }
+                            _attempts.value = restoredAttempts
+                            _currentScreen.value = Screen.ACTIVE_EXAM
+                            startTimer()
+                        }
+                    } else {
+                        // Exam target time already passed while app was closed
+                        repository.clearActiveExamState()
+                    }
+                }
+            } catch (e: Exception) {
+                // Safeguard against corrupted restore
+            }
+
             // Observe history to compute weak topics
             repository.getAllSessions().collect { sessions ->
                 val weak = sessions.flatMap { it.weakTopics }.distinct()
@@ -382,6 +420,7 @@ class JeeViewModel(application: Application) : AndroidViewModel(application) {
         _activeTestSource.value = source
         _activePattern.value = pattern
         testStartDurationMinutes = durationMinutes
+        targetEndTimeMillis = System.currentTimeMillis() + (durationMinutes * 60 * 1000L)
         _timeRemainingSeconds.value = durationMinutes * 60L
         _currentQuestionIndex.value = 0
         _activeSectionFilter.value = null
@@ -395,18 +434,54 @@ class JeeViewModel(application: Application) : AndroidViewModel(application) {
         _attempts.value = attemptList
         _currentScreen.value = Screen.ACTIVE_EXAM
 
+        persistActiveExam()
         startTimer()
     }
 
     private fun startTimer() {
         timerJob?.cancel()
         timerJob = viewModelScope.launch {
-            while (_timeRemainingSeconds.value > 0) {
+            while (true) {
+                val now = System.currentTimeMillis()
+                val remaining = (targetEndTimeMillis - now) / 1000L
+                _timeRemainingSeconds.value = maxOf(0L, remaining)
+                if (remaining <= 0) {
+                    // Auto submit when time expires
+                    submitExam()
+                    break
+                }
                 delay(1000L)
-                _timeRemainingSeconds.value -= 1
             }
-            // Auto submit when time expires
-            submitExam()
+        }
+    }
+
+    private fun persistActiveExam() {
+        if (_attempts.value.isEmpty()) return
+        val title = _activeTestTitle.value
+        val source = _activeTestSource.value
+        val pattern = _activePattern.value
+        val duration = testStartDurationMinutes
+        val endTime = targetEndTimeMillis
+        val idx = _currentQuestionIndex.value
+        val section = _activeSectionFilter.value?.name
+        val atts = _attempts.value
+
+        viewModelScope.launch {
+            try {
+                val state = ActiveExamState.fromAttempts(
+                    title = title,
+                    source = source,
+                    examPattern = pattern,
+                    durationMinutes = duration,
+                    targetEndTimeMillis = endTime,
+                    currentIndex = idx,
+                    sectionFilter = section,
+                    attempts = atts
+                )
+                repository.saveActiveExamState(state)
+            } catch (e: Exception) {
+                // Safeguard against SQLite IO error
+            }
         }
     }
 
@@ -419,6 +494,7 @@ class JeeViewModel(application: Application) : AndroidViewModel(application) {
                 navigateToQuestion(idx)
             }
         }
+        persistActiveExam()
     }
 
     fun updateSelectedAnswer(answer: String?) {
@@ -428,6 +504,7 @@ class JeeViewModel(application: Application) : AndroidViewModel(application) {
             val item = currentList[idx].copy(selectedOption = answer)
             currentList[idx] = item
             _attempts.value = currentList
+            persistActiveExam()
         }
     }
 
@@ -454,6 +531,7 @@ class JeeViewModel(application: Application) : AndroidViewModel(application) {
             }
             _currentQuestionIndex.value = nextIdx
         }
+        persistActiveExam()
     }
 
     fun onMarkForReviewAndNext(answer: String?) {
@@ -479,6 +557,7 @@ class JeeViewModel(application: Application) : AndroidViewModel(application) {
             }
             _currentQuestionIndex.value = nextIdx
         }
+        persistActiveExam()
     }
 
     fun onClearResponse() {
@@ -488,6 +567,7 @@ class JeeViewModel(application: Application) : AndroidViewModel(application) {
             val old = currentList[idx]
             currentList[idx] = old.copy(selectedOption = null, status = QuestionStatus.NOT_ANSWERED)
             _attempts.value = currentList
+            persistActiveExam()
         }
     }
 
@@ -500,7 +580,17 @@ class JeeViewModel(application: Application) : AndroidViewModel(application) {
                 _attempts.value = currentList
             }
             _currentQuestionIndex.value = targetIndex
+            persistActiveExam()
         }
+    }
+
+    fun discardActiveExam() {
+        timerJob?.cancel()
+        _attempts.value = emptyList()
+        viewModelScope.launch {
+            repository.clearActiveExamState()
+        }
+        _currentScreen.value = Screen.HOME
     }
 
     fun submitExam() {
@@ -509,6 +599,7 @@ class JeeViewModel(application: Application) : AndroidViewModel(application) {
         val currentAttempts = _attempts.value
 
         viewModelScope.launch {
+            repository.clearActiveExamState()
             val session = repository.submitTestSession(
                 title = _activeTestTitle.value,
                 pattern = _activePattern.value,

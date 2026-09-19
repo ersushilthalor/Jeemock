@@ -287,9 +287,9 @@ object GenuinePyqBank {
             negativeMarks = 1
         ),
 
-        // ================= JEE ADVANCED PYQS =================
+        // ================= ADDITIONAL JEE MAIN PYQS =================
         Question(
-            id = "PYQ_ADV_PHY_2023_01",
+            id = "PYQ_PHY_2023_06",
             textEn = "A cylindrical tube of length L has both ends open. A tuning fork of frequency f resonates with the first overtone of the tube. When one end is closed, it resonates in fundamental mode with another tuning fork of frequency f'. The ratio f / f' is:",
             textHi = "लंबाई L की एक बेलनाकार नली के दोनों सिरे खुले हैं। आवृत्ति f का एक स्वरित्र द्विभुज (tuning fork) नली के प्रथम अधिस्वरक (first overtone) के साथ अनुनाद करता है। जब एक सिरा बंद कर दिया जाता है, तो यह आवृत्ति f' के दूसरे स्वरित्र के साथ मूल विधा में अनुनाद करता है। अनुपात f / f' का मान क्या है?",
             optionsEn = listOf("4", "2", "3", "8/3"),
@@ -300,9 +300,9 @@ object GenuinePyqBank {
             subject = Subject.PHYSICS,
             chapter = "Wave Motion and Sound",
             topic = "Organ Pipes and Resonance",
-            examPattern = ExamPattern.JEE_ADVANCED,
+            examPattern = ExamPattern.JEE_MAIN,
             year = 2023,
-            session = "JEE Advanced 2023 Paper 1",
+            session = "JEE Main 2023 April 11 Shift 1",
             difficulty = Difficulty.HARD,
             questionType = QuestionType.MCQ,
             isGenuinePyq = true,
@@ -310,7 +310,7 @@ object GenuinePyqBank {
             negativeMarks = 1
         ),
         Question(
-            id = "PYQ_ADV_CHEM_2023_02",
+            id = "PYQ_CHEM_2023_06",
             textEn = "Among the following coordination complexes, the one which exhibits optical isomerism is:",
             textHi = "निम्नलिखित उपसहसंयोजन संकुलों में से कौन-सा प्रकाशिक समावयवता (optical isomerism) प्रदर्शित करता है?",
             optionsEn = listOf("cis-[Co(en)₂Cl₂]⁺", "trans-[Co(en)₂Cl₂]⁺", "[Co(NH₃)₄Cl₂]⁺", "[Pt(NH₃)₂Cl₂]"),
@@ -321,9 +321,9 @@ object GenuinePyqBank {
             subject = Subject.CHEMISTRY,
             chapter = "Coordination Compounds",
             topic = "Stereoisomerism in Complexes",
-            examPattern = ExamPattern.JEE_ADVANCED,
+            examPattern = ExamPattern.JEE_MAIN,
             year = 2023,
-            session = "JEE Advanced 2023 Paper 2",
+            session = "JEE Main 2023 Jan 30 Shift 2",
             difficulty = Difficulty.HARD,
             questionType = QuestionType.MCQ,
             isGenuinePyq = true,
@@ -331,7 +331,7 @@ object GenuinePyqBank {
             negativeMarks = 1
         ),
         Question(
-            id = "PYQ_ADV_MATH_2023_03",
+            id = "PYQ_MATH_2023_06",
             textEn = "Let f : ℝ → ℝ be a differentiable function such that f(0) = 0, f'(x) > 0 for all x ∈ ℝ and f'(x) = [f(x)]² + 1. The value of f(π/4) is:",
             textHi = "माना f : ℝ → ℝ एक अवकलनीय फलन है जहाँ f(0) = 0, सभी x ∈ ℝ के लिए f'(x) > 0 तथा f'(x) = [f(x)]² + 1 है। f(π/4) का मान क्या होगा?",
             optionsEn = listOf("1", "√3", "1 / √3", "2"),
@@ -342,9 +342,9 @@ object GenuinePyqBank {
             subject = Subject.MATHEMATICS,
             chapter = "Differential Equations",
             topic = "Variable Separable Form",
-            examPattern = ExamPattern.JEE_ADVANCED,
+            examPattern = ExamPattern.JEE_MAIN,
             year = 2023,
-            session = "JEE Advanced 2023 Paper 1",
+            session = "JEE Main 2023 April 6 Shift 2",
             difficulty = Difficulty.HARD,
             questionType = QuestionType.MCQ,
             isGenuinePyq = true,

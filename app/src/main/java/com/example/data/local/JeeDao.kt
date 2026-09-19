@@ -58,3 +58,16 @@ interface TestSessionDao {
     @Query("SELECT * FROM test_sessions WHERE isCompleted = 1 ORDER BY timestamp DESC LIMIT 10")
     fun getRecentCompletedSessions(): Flow<List<TestSession>>
 }
+
+@Dao
+interface ActiveExamDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun saveActiveExam(state: com.example.data.model.ActiveExamState)
+
+    @Query("SELECT * FROM active_exam_state WHERE id = 'ACTIVE_TEST' LIMIT 1")
+    suspend fun getActiveExam(): com.example.data.model.ActiveExamState?
+
+    @Query("DELETE FROM active_exam_state WHERE id = 'ACTIVE_TEST'")
+    suspend fun clearActiveExam()
+}
+

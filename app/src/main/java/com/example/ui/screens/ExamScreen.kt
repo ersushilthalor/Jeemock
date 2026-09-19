@@ -620,13 +620,15 @@ fun ExamScreen(viewModel: JeeViewModel) {
                                         )
                                     }
                                     Spacer(modifier = Modifier.width(12.dp))
-                                    Text(
+                                    AutoResizeText(
                                         text = optionText,
                                         fontSize = 14.sp,
+                                        minFontSize = 11.sp,
                                         color = if (isSelected) BrownPrimary else BrownTextTitle,
                                         fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                         lineHeight = 20.sp,
                                         softWrap = true,
+                                        maxLines = 6,
                                         modifier = Modifier.weight(1f)
                                     )
                                 }

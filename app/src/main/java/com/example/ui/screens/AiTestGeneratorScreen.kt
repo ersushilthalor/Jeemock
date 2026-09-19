@@ -406,67 +406,52 @@ fun AiTestGeneratorScreen(viewModel: JeeViewModel) {
                     }
                 }
 
-                // 1. Exam Pattern
+                // Exam Format Badge (JEE Main exclusive)
                 item {
-                    SectionHeader(
-                        title = if (lang == AppLanguage.ENGLISH) "1. Exam Pattern" else "1. परीक्षा पैटर्न",
-                        subtitle = if (lang == AppLanguage.ENGLISH) "Select exam format and marking scheme" else "परीक्षा प्रारूप और अंकन प्रणाली चुनें"
-                    )
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = PureWhite,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, BrownBorder),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        ExamPattern.values().forEach { pat ->
-                            val isSelected = pat == pattern
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Surface(
-                                shape = RoundedCornerShape(14.dp),
-                                color = if (isSelected) BrownPrimary else PureWhite,
-                                border = androidx.compose.foundation.BorderStroke(
-                                    1.dp,
-                                    if (isSelected) BrownPrimary else BrownBorder
-                                ),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .bouncyClickable { viewModel.genPattern.value = pat }
+                                shape = RoundedCornerShape(8.dp),
+                                color = StatusEmerald.copy(alpha = 0.12f)
                             ) {
-                                Column(modifier = Modifier.padding(14.dp)) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text(
-                                            text = pat.displayName,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 14.sp,
-                                            color = if (isSelected) PureWhite else BrownTextTitle
-                                        )
-                                        if (isSelected) {
-                                            Icon(
-                                                imageVector = Icons.Default.Check,
-                                                contentDescription = null,
-                                                tint = Color(0xFFFFD54F),
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                        }
-                                    }
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text(
-                                        text = if (pat == ExamPattern.JEE_MAIN) "+4 / -1 MCQ & Numerical" else "High-level Multi-Concept",
-                                        fontSize = 11.sp,
-                                        color = if (isSelected) Color(0xFFD7CCC8) else BrownTextMuted
-                                    )
-                                }
+                                Text(
+                                    text = "JEE MAIN",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 11.sp,
+                                    color = StatusEmerald,
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Column {
+                                Text(
+                                    text = if (lang == AppLanguage.ENGLISH) "Official JEE Main Examination Pattern" else "आधिकारिक जेईई मेन परीक्षा पैटर्न",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = BrownTextTitle
+                                )
+                                Text(
+                                    text = if (lang == AppLanguage.ENGLISH) "Single Choice MCQs & Numericals • +4 Correct / -1 Negative Marking" else "एकल विकल्प एमसीक्यू और संख्यात्मक प्रश्न • +4 सही / -1 ऋणात्मक अंकन",
+                                    fontSize = 11.sp,
+                                    color = BrownTextMuted
+                                )
                             }
                         }
                     }
                 }
 
-                // 2. Syllabus Scope
+                // 1. Syllabus Scope
                 item {
                     SectionHeader(
-                        title = if (lang == AppLanguage.ENGLISH) "2. Subject / Full Syllabus" else "2. विषय / सम्पूर्ण पाठ्यक्रम",
+                        title = if (lang == AppLanguage.ENGLISH) "1. Subject / Full Syllabus" else "1. विषय / सम्पूर्ण पाठ्यक्रम",
                         subtitle = if (lang == AppLanguage.ENGLISH) "Choose single subject or balanced full test" else "एक विषय या सम्पूर्ण संतुलित टेस्ट चुनें"
                     )
                     Spacer(modifier = Modifier.height(8.dp))

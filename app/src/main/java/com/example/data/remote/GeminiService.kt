@@ -79,19 +79,15 @@ object GeminiService {
 
         val subjectScope = subject?.displayNameEn ?: "Physics, Chemistry, and Mathematics equally"
         val chaptersScope = if (chapters.isNotEmpty()) chapters.joinToString(", ") else "All standard JEE chapters"
-        val patternDescription = if (pattern == ExamPattern.JEE_MAIN) {
-            "JEE Main pattern (Mix of 4-option Single Choice MCQs and Numerical Value Type questions, marking +4 for correct and -1 for wrong in MCQ)."
-        } else {
-            "JEE Advanced pattern (Advanced Single Choice MCQs and Integer/Decimal Numerical questions with deep analytical reasoning)."
-        }
+        val patternDescription = "JEE Main pattern (Mix of 4-option Single Choice MCQs and Numerical Value Type questions, marking +4 for correct and -1 for wrong for both MCQ and Numerical)."
 
-        // Limit count to maximum 10 per call for fast response & low latency
+        // Limit count to maximum 15 per call
         val safeCount = count.coerceIn(3, 15)
 
         val prompt = """
-            You are a senior national test paper setter for the Indian Joint Entrance Examination (JEE Main & JEE Advanced).
-            Generate EXACTLY $safeCount real, rigorous, high-quality JEE examination questions matching:
-            - Pattern: $patternDescription
+            You are a senior national test paper setter for the Indian Joint Entrance Examination (JEE Main).
+            Generate EXACTLY $safeCount real, rigorous, high-quality JEE Main examination questions matching:
+            - Exam: JEE Main
             - Subject: $subjectScope
             - Chapters/Topics: $chaptersScope
             - Difficulty Level: ${difficulty.displayNameEn}
@@ -100,10 +96,11 @@ object GeminiService {
             1. BILINGUAL SUPPORT: Every question, all 4 options, and the step-by-step solution MUST be provided in BOTH English and Hindi.
             2. SCIENTIFIC TERMINOLOGY: Use authentic Indian NCERT/JEE standard Hindi scientific vocabulary (e.g. त्वरण, संवेग, जड़त्व आघूर्ण, ऊष्मागतिकी, संकरण, समन्वय यौगिक, समाकलन, अवकल समीकरण, आदि). Do NOT use literal machine translations.
             3. MATH & FORMULAS: Keep formulas, units, and scientific notation clean and readable (e.g. F = m*a, 1.6 × 10^-19 C, ∫ x^2 dx, etc.).
-            4. VALIDATION:
-               - For MCQ: 'optionsEn' MUST have exactly 4 options. 'optionsHi' MUST have exactly 4 corresponding options. 'correctAnswer' MUST be "A", "B", "C", or "D".
-               - For NUMERICAL: 'optionsEn' and 'optionsHi' can be empty arrays []. 'correctAnswer' MUST be a clean numeric string (e.g. "12", "4.5", "-3").
-               - 'solutionEn' and 'solutionHi' must provide step-by-step working.
+            4. VALIDATION & CONSISTENCY:
+               - For MCQ: 'optionsEn' MUST have exactly 4 distinct options. 'optionsHi' MUST have exactly 4 corresponding options. 'correctAnswer' MUST be strictly "A", "B", "C", or "D".
+               - For NUMERICAL: 'optionsEn' and 'optionsHi' MUST be empty arrays []. 'correctAnswer' MUST be a clean numeric string (e.g. "12", "4.5", "-3").
+               - 'solutionEn' and 'solutionHi' must provide complete step-by-step mathematical working.
+               - If an answer cannot be verified, DO NOT guess.
             
             OUTPUT FORMAT: Return ONLY a valid JSON array of question objects with this schema:
             [
@@ -285,9 +282,11 @@ object GeminiService {
                 // Fallback textHi if model missed it
                 val safeTextHi = if (textHi.isNotBlank()) textHi else textEn
 
-                // Check duplicate
-                val signature = textEn.lowercase().filter { it.isLetterOrDigit() }.take(60)
-                if (signature in existingQuestionSignatures || signature in seenInCurrentBatch) {
+                // Check duplicate using advanced token/signature analysis
+                if (com.example.data.model.QuestionValidation.isDuplicateQuestion(textEn, existingQuestionSignatures) ||
+                    com.example.data.model.QuestionValidation.isDuplicateQuestion(textEn, seenInCurrentBatch)
+                ) {
+                    Log.d(TAG, "Skipping duplicate/reworded AI question: ${textEn.take(40)}...")
                     continue
                 }
 
@@ -301,7 +300,10 @@ object GeminiService {
                 val optionsHiArr = obj.optJSONArray("optionsHi")
 
                 if (qType == QuestionType.MCQ) {
-                    if (optionsEnArr == null || optionsEnArr.length() < 4) continue
+                    if (optionsEnArr == null || optionsEnArr.length() < 4) {
+                        Log.w(TAG, "Skipping MCQ: Insufficient options in English.")
+                        continue
+                    }
                     for (k in 0 until 4) {
                         val optEn = optionsEnArr.optString(k, "").trim()
                         val optHi = optionsHiArr?.optString(k, "")?.trim() ?: ""
@@ -309,10 +311,18 @@ object GeminiService {
                         optionsEnList.add(optEn)
                         optionsHiList.add(if (optHi.isNotBlank()) optHi else optEn)
                     }
-                    if (optionsEnList.size != 4) continue
+                    if (optionsEnList.size != 4) {
+                        Log.w(TAG, "Skipping MCQ: Blank options detected.")
+                        continue
+                    }
                 }
 
                 val rawCorrect = obj.optString("correctAnswer", "").trim()
+                if (rawCorrect.isBlank()) {
+                    Log.w(TAG, "Skipping question: Blank correctAnswer received from AI.")
+                    continue
+                }
+
                 var normalizedCorrect = when (rawCorrect.uppercase()) {
                     "A", "1", "OPTION A", "OPTION 1", "(A)", "(1)" -> "A"
                     "B", "2", "OPTION B", "OPTION 2", "(B)", "(2)" -> "B"
@@ -321,7 +331,7 @@ object GeminiService {
                     else -> rawCorrect
                 }
 
-                // If model returned option value itself, find matching index
+                // If model returned option value itself for MCQ, find matching index
                 if (qType == QuestionType.MCQ && normalizedCorrect !in listOf("A", "B", "C", "D")) {
                     val matchEn = optionsEnList.indexOfFirst { it.equals(rawCorrect, ignoreCase = true) }
                     val matchHi = optionsHiList.indexOfFirst { it.equals(rawCorrect, ignoreCase = true) }
@@ -329,18 +339,28 @@ object GeminiService {
                     if (foundIdx in 0..3) {
                         normalizedCorrect = listOf("A", "B", "C", "D")[foundIdx]
                     } else {
-                        // Fallback to A if not resolvable
-                        normalizedCorrect = "A"
+                        // User requirement: Do NOT default to "A" if answer is invalid or unresolved! Reject the question.
+                        Log.w(TAG, "Rejecting AI question: MCQ correct answer '$rawCorrect' does not resolve to any option.")
+                        continue
                     }
                 }
 
                 if (qType == QuestionType.NUMERICAL) {
-                    val cleanNum = normalizedCorrect.filter { it.isDigit() || it == '.' || it == '-' }
-                    normalizedCorrect = if (cleanNum.toDoubleOrNull() != null) cleanNum else "0"
+                    val cleanNum = rawCorrect.filter { it.isDigit() || it == '.' || it == '-' }
+                    if (cleanNum.toDoubleOrNull() == null) {
+                        // User requirement: Do NOT default to "0" if answer is missing/invalid! Reject the question.
+                        Log.w(TAG, "Rejecting AI question: Numerical correct answer '$rawCorrect' is not a valid number.")
+                        continue
+                    }
+                    normalizedCorrect = cleanNum
                 }
 
                 val solutionEn = obj.optString("solutionEn", "").trim()
                 val solutionHi = obj.optString("solutionHi", "").trim()
+                if (solutionEn.isBlank() && solutionHi.isBlank()) {
+                    Log.w(TAG, "Rejecting AI question: Both solutionEn and solutionHi are missing.")
+                    continue
+                }
                 val safeSolutionEn = if (solutionEn.isNotBlank()) solutionEn else "Detailed solution: Correct answer is $normalizedCorrect."
                 val safeSolutionHi = if (solutionHi.isNotBlank()) solutionHi else "विस्तृत हल: सही उत्तर $normalizedCorrect है।"
 
@@ -354,7 +374,8 @@ object GeminiService {
                 val chapter = obj.optString("chapter", "General").trim()
                 val topic = obj.optString("topic", "Concepts").trim()
                 val posMarks = obj.optInt("positiveMarks", 4)
-                val negMarks = if (qType == QuestionType.MCQ) obj.optInt("negativeMarks", 1) else 0
+                // In JEE Main, both MCQ and Numerical have -1 negative marking
+                val negMarks = obj.optInt("negativeMarks", 1)
 
                 val question = Question(
                     id = "AI_${UUID.randomUUID()}",
@@ -372,14 +393,22 @@ object GeminiService {
                     questionType = qType,
                     isGenuinePyq = false,
                     year = 2025,
-                    examPattern = pattern,
+                    examPattern = ExamPattern.JEE_MAIN,
                     session = "Gemini AI Personalized Test",
                     positiveMarks = posMarks,
-                    negativeMarks = negMarks
+                    negativeMarks = negMarks,
+                    numericalTolerance = 0.0
                 )
 
+                // Thorough internal consistency check
+                val (isValid, reason) = com.example.data.model.QuestionValidation.validateQuestion(question)
+                if (!isValid) {
+                    Log.w(TAG, "Rejecting AI question failing validation: $reason")
+                    continue
+                }
+
                 validList.add(question)
-                seenInCurrentBatch.add(signature)
+                seenInCurrentBatch.add(textEn)
             } catch (e: Exception) {
                 Log.w(TAG, "Skipping question due to parsing anomaly: ${e.message}")
             }
