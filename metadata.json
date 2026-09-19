@@ -1,0 +1,8 @@
+{
+  "name": "JEE Mock Test",
+  "description": "Real bilingual JEE Main & Advanced mock test app with genuine PYQs, Gemini-powered personalized test generator, real NTA CBT exam interface, and in-depth performance analytics.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
