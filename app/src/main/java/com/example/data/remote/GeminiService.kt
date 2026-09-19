@@ -33,12 +33,12 @@ object GeminiService {
     private const val TAG = "GeminiService"
     private const val BASE_URL = "https://generativelanguage.googleapis.com/v1beta/models"
 
-    // High-speed, verified models with fallback
+    // Supported modern Gemini models with automatic fallback
     private val CANDIDATE_MODELS = listOf(
+        "gemini-3.5-flash",
+        "gemini-3.1-pro-preview",
         "gemini-3.1-flash-lite-preview",
-        "gemini-flash-latest",
-        "gemini-3.6-flash",
-        "gemini-3.1-pro-preview"
+        "gemini-2.5-flash"
     )
 
     private val client: OkHttpClient by lazy {
@@ -64,7 +64,7 @@ object GeminiService {
 
     suspend fun generatePersonalizedQuestions(
         context: Context,
-        pattern: ExamPattern,
+        pattern: ExamPattern = ExamPattern.JEE_MAIN,
         subject: Subject?,
         chapters: List<String>,
         difficulty: Difficulty,
@@ -77,45 +77,112 @@ object GeminiService {
             throw GeminiApiException("API_NOT_CONFIGURED")
         }
 
-        val subjectScope = subject?.displayNameEn ?: "Physics, Chemistry, and Mathematics equally"
-        val chaptersScope = if (chapters.isNotEmpty()) chapters.joinToString(", ") else "All standard JEE chapters"
-        val patternDescription = "JEE Main pattern (Mix of 4-option Single Choice MCQs and Numerical Value Type questions, marking +4 for correct and -1 for wrong for both MCQ and Numerical)."
+        if (!isNetworkAvailable(context)) {
+            throw NoInternetException("No internet connection detected. Please connect to the internet to generate AI practice tests.")
+        }
 
-        // Limit count to maximum 15 per call
-        val safeCount = count.coerceIn(3, 15)
+        val targetCount = count.coerceIn(3, 15)
+        val accumulatedQuestions = mutableListOf<Question>()
+        val allSignatures = existingQuestionSignatures.toMutableSet()
+
+        var attempts = 0
+        val maxAttempts = 3
+        var lastException: Exception? = null
+
+        while (accumulatedQuestions.size < targetCount && attempts < maxAttempts) {
+            attempts++
+            val needed = targetCount - accumulatedQuestions.size
+            // Request exact needed or needed+1 to hedge against single rejection
+            val batchRequestCount = minOf(needed + (if (needed < 15) 1 else 0), 15)
+
+            try {
+                val batch = fetchAndValidateBatch(
+                    apiKey = apiKey,
+                    subject = subject,
+                    chapters = chapters,
+                    difficulty = difficulty,
+                    requestCount = batchRequestCount,
+                    existingQuestionSignatures = allSignatures
+                )
+
+                for (q in batch) {
+                    if (accumulatedQuestions.size < targetCount) {
+                        accumulatedQuestions.add(q)
+                        allSignatures.add(q.textEn)
+                    }
+                }
+            } catch (e: NoInternetException) {
+                throw e
+            } catch (e: GeminiApiException) {
+                if (e.message?.contains("API_KEY") == true || e.message?.contains("API_NOT_CONFIGURED") == true) {
+                    throw e
+                }
+                lastException = e
+                Log.w(TAG, "Attempt $attempts error: ${e.message}")
+            } catch (e: Exception) {
+                lastException = e
+                Log.w(TAG, "Attempt $attempts unexpected error: ${e.message}")
+            }
+        }
+
+        if (accumulatedQuestions.size < targetCount) {
+            if (accumulatedQuestions.isEmpty()) {
+                throw GeminiApiException(lastException?.message ?: "Unable to generate valid JEE Main questions meeting quality standards. Please check your connection and try again.")
+            } else {
+                throw GeminiApiException("Quality validation rejected ambiguous or inconsistent questions. Could only verify ${accumulatedQuestions.size} of $targetCount questions. Please try again.")
+            }
+        }
+
+        return@withContext accumulatedQuestions.take(targetCount)
+    }
+
+    private fun fetchAndValidateBatch(
+        apiKey: String,
+        subject: Subject?,
+        chapters: List<String>,
+        difficulty: Difficulty,
+        requestCount: Int,
+        existingQuestionSignatures: Set<String>
+    ): List<Question> {
+        val subjectScope = subject?.displayNameEn ?: "Physics, Chemistry, and Mathematics equally"
+        val chaptersScope = if (chapters.isNotEmpty()) chapters.joinToString(", ") else "All standard JEE Main chapters"
 
         val prompt = """
-            You are a senior national test paper setter for the Indian Joint Entrance Examination (JEE Main).
-            Generate EXACTLY $safeCount real, rigorous, high-quality JEE Main examination questions matching:
-            - Exam: JEE Main
+            You are a senior national test paper setter designing original practice questions for the Indian Joint Entrance Examination (JEE Main).
+            Generate EXACTLY $requestCount original, high-quality JEE Main practice questions matching:
+            - Exam: JEE Main (Strictly following the NTA JEE Main syllabus and pattern)
             - Subject: $subjectScope
             - Chapters/Topics: $chaptersScope
             - Difficulty Level: ${difficulty.displayNameEn}
             
-            CRITICAL REQUIREMENTS:
-            1. BILINGUAL SUPPORT: Every question, all 4 options, and the step-by-step solution MUST be provided in BOTH English and Hindi.
-            2. SCIENTIFIC TERMINOLOGY: Use authentic Indian NCERT/JEE standard Hindi scientific vocabulary (e.g. त्वरण, संवेग, जड़त्व आघूर्ण, ऊष्मागतिकी, संकरण, समन्वय यौगिक, समाकलन, अवकल समीकरण, आदि). Do NOT use literal machine translations.
-            3. MATH & FORMULAS: Keep formulas, units, and scientific notation clean and readable (e.g. F = m*a, 1.6 × 10^-19 C, ∫ x^2 dx, etc.).
-            4. VALIDATION & CONSISTENCY:
-               - For MCQ: 'optionsEn' MUST have exactly 4 distinct options. 'optionsHi' MUST have exactly 4 corresponding options. 'correctAnswer' MUST be strictly "A", "B", "C", or "D".
-               - For NUMERICAL: 'optionsEn' and 'optionsHi' MUST be empty arrays []. 'correctAnswer' MUST be a clean numeric string (e.g. "12", "4.5", "-3").
-               - 'solutionEn' and 'solutionHi' must provide complete step-by-step mathematical working.
-               - If an answer cannot be verified, DO NOT guess.
+            CRITICAL QUALITY & INTEGRITY RULES:
+            1. ORIGINAL PRACTICE QUESTIONS: These are newly formulated practice questions. Do NOT claim they are copied from actual past year papers.
+            2. SELF-CONTAINED (NO MISSING DIAGRAMS): Every question must be fully self-contained in text and formulas. NEVER reference external figures, circuits, diagrams, or graphs (e.g. NEVER use "in the given figure", "as shown in the diagram", "refer to the circuit").
+            3. MATHEMATICAL & SCIENTIFIC RIGOR:
+               - Every problem must be strictly solvable with standard JEE Main formulas and physical constants.
+               - Step-by-step working in 'solutionEn' and 'solutionHi' must derive and conclude with the EXACT same option or numerical value as 'correctAnswer'.
+               - Reject ambiguous, contradictory, or unverifiable questions.
+            4. BILINGUAL SUPPORT:
+               - Provide question statement, all 4 options, and the step-by-step solution in BOTH English and standard NCERT Hindi scientific vocabulary (e.g. जड़त्व आघूर्ण, ऊष्मागतिकी, संकरण, समाकलन).
+            5. QUESTION TYPES & SCHEMA SPECIFICATIONS:
+               - For MCQ: 'optionsEn' MUST have exactly 4 distinct, non-empty options. 'optionsHi' MUST have 4 corresponding options. 'correctAnswer' MUST strictly be "A", "B", "C", or "D".
+               - For NUMERICAL: 'optionsEn' and 'optionsHi' MUST be empty arrays []. 'correctAnswer' MUST be a clean numeric string (integer or decimal, e.g. "12", "4.5", "-3").
+               - 'positiveMarks': 4, 'negativeMarks': 1 (In JEE Main, both MCQ and Numerical have -1 negative marking).
             
             OUTPUT FORMAT: Return ONLY a valid JSON array of question objects with this schema:
             [
               {
                 "subject": "PHYSICS" | "CHEMISTRY" | "MATHEMATICS",
-                "chapter": "String",
-                "topic": "String",
+                "chapter": "Specific Chapter Name",
+                "topic": "Specific Topic Name",
                 "questionType": "MCQ" | "NUMERICAL",
                 "textEn": "Question statement in English",
                 "textHi": "Question statement in Hindi",
                 "optionsEn": ["Option A text", "Option B text", "Option C text", "Option D text"],
-                "optionsHi": ["Option A text in Hindi", "Option B text in Hindi", "Option C text in Hindi", "Option D text in Hindi"],
+                "optionsHi": ["विकल्प A", "विकल्प B", "विकल्प C", "विकल्प D"],
                 "correctAnswer": "A",
-                "solutionEn": "Step-by-step solution in English",
-                "solutionHi": "Step-by-step solution in Hindi",
+                "solutionEn": "Step-by-step solution in English concluding with: Hence, option A is correct.",
+                "solutionHi": "चरणबद्ध हल... अतः सही विकल्प A है।",
                 "positiveMarks": 4,
                 "negativeMarks": 1
               }
@@ -140,7 +207,7 @@ object GeminiService {
 
         var lastError: Exception? = null
 
-        // Try candidate models in priority sequence with automatic fallback
+        // Try supported candidate models in priority sequence with automatic fallback
         for (modelName in CANDIDATE_MODELS) {
             val url = "$BASE_URL/$modelName:generateContent?key=$apiKey"
             val body = requestJson.toString().toRequestBody("application/json".toMediaType())
@@ -150,7 +217,7 @@ object GeminiService {
                 .build()
 
             try {
-                Log.d(TAG, "Attempting question generation with model: $modelName")
+                Log.d(TAG, "Attempting question generation with supported model: $modelName")
                 val response = client.newCall(request).execute()
 
                 if (!response.isSuccessful) {
@@ -163,19 +230,19 @@ object GeminiService {
                         continue
                     }
                     if (code == 400 || code == 403) {
-                        throw GeminiApiException("API_KEY_INVALID: The provided Gemini API Key is invalid or expired ($code). Please re-check your key in API settings.")
+                        throw GeminiApiException("API_KEY_INVALID: The provided Gemini API Key is invalid or expired ($code). Please check your key in API settings.")
                     }
                     throw GeminiApiException("API error ($code): $err")
                 }
 
                 val responseBodyString = response.body?.string() ?: throw GeminiApiException("Empty response received from Gemini.")
-                val parsedQuestions = parseAndValidateQuestions(responseBodyString, pattern, difficulty, existingQuestionSignatures)
+                val parsedQuestions = parseAndValidateQuestions(responseBodyString, difficulty, existingQuestionSignatures)
 
                 if (parsedQuestions.isNotEmpty()) {
-                    Log.d(TAG, "Successfully generated ${parsedQuestions.size} questions using $modelName")
-                    return@withContext parsedQuestions
+                    Log.d(TAG, "Successfully generated ${parsedQuestions.size} valid questions using $modelName")
+                    return parsedQuestions
                 } else {
-                    Log.w(TAG, "Parsing yielded 0 valid questions for $modelName. Trying next candidate...")
+                    Log.w(TAG, "Validation yielded 0 valid questions for $modelName. Trying next candidate...")
                 }
             } catch (e: UnknownHostException) {
                 Log.e(TAG, "Network host unreachable: ${e.message}")
@@ -186,7 +253,6 @@ object GeminiService {
             } catch (e: SocketTimeoutException) {
                 Log.w(TAG, "Timeout on model $modelName: ${e.message}")
                 lastError = e
-                // Try next model if one timed out
                 continue
             } catch (e: IOException) {
                 Log.w(TAG, "I/O failure on model $modelName: ${e.message}")
@@ -199,19 +265,17 @@ object GeminiService {
             }
         }
 
-        // If we reached here and have an error:
         if (lastError is SocketTimeoutException) {
-            throw GeminiApiException("Connection timed out. The server took too long to respond. Please try again with fewer questions or check your connection.")
+            throw GeminiApiException("Connection timed out. Please check your connection and try again.")
         }
         if (lastError is NoInternetException) {
             throw lastError
         }
-        throw GeminiApiException(lastError?.message ?: "Unable to generate personalized questions at this moment. Please check your network and try again.")
+        throw GeminiApiException(lastError?.message ?: "Unable to generate verified practice questions at this moment.")
     }
 
     private fun parseAndValidateQuestions(
         responseJsonStr: String,
-        pattern: ExamPattern,
         difficulty: Difficulty,
         existingQuestionSignatures: Set<String>
     ): List<Question> {
@@ -357,12 +421,12 @@ object GeminiService {
 
                 val solutionEn = obj.optString("solutionEn", "").trim()
                 val solutionHi = obj.optString("solutionHi", "").trim()
-                if (solutionEn.isBlank() && solutionHi.isBlank()) {
-                    Log.w(TAG, "Rejecting AI question: Both solutionEn and solutionHi are missing.")
+                if (solutionEn.length < 20 && solutionHi.length < 20) {
+                    Log.w(TAG, "Rejecting AI question: Solution is missing or too brief to contain step-by-step derivation.")
                     continue
                 }
-                val safeSolutionEn = if (solutionEn.isNotBlank()) solutionEn else "Detailed solution: Correct answer is $normalizedCorrect."
-                val safeSolutionHi = if (solutionHi.isNotBlank()) solutionHi else "विस्तृत हल: सही उत्तर $normalizedCorrect है।"
+                val safeSolutionEn = if (solutionEn.isNotBlank()) solutionEn else solutionHi
+                val safeSolutionHi = if (solutionHi.isNotBlank()) solutionHi else solutionEn
 
                 val subjectStr = obj.optString("subject", "PHYSICS").uppercase()
                 val subject = when {
@@ -371,8 +435,12 @@ object GeminiService {
                     else -> Subject.PHYSICS
                 }
 
-                val chapter = obj.optString("chapter", "General").trim()
-                val topic = obj.optString("topic", "Concepts").trim()
+                val chapter = obj.optString("chapter", "").trim()
+                if (chapter.isBlank() || chapter.equals("General", ignoreCase = true) || chapter.equals("Unknown", ignoreCase = true)) {
+                    Log.w(TAG, "Rejecting AI question: Missing or generic chapter name.")
+                    continue
+                }
+                val topic = obj.optString("topic", "").trim().ifBlank { chapter }
                 val posMarks = obj.optInt("positiveMarks", 4)
                 // In JEE Main, both MCQ and Numerical have -1 negative marking
                 val negMarks = obj.optInt("negativeMarks", 1)
@@ -392,9 +460,9 @@ object GeminiService {
                     difficulty = difficulty,
                     questionType = qType,
                     isGenuinePyq = false,
-                    year = 2025,
+                    year = null, // AI practice questions MUST NOT have a past exam year
                     examPattern = ExamPattern.JEE_MAIN,
-                    session = "Gemini AI Personalized Test",
+                    session = "AI Practice (JEE Main Pattern)",
                     positiveMarks = posMarks,
                     negativeMarks = negMarks,
                     numericalTolerance = 0.0

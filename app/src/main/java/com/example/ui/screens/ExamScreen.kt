@@ -537,10 +537,23 @@ fun ExamScreen(viewModel: JeeViewModel) {
                                     shape = RoundedCornerShape(6.dp)
                                 ) {
                                     Text(
-                                        text = "${currentQuestion.examPattern.displayName} ${currentQuestion.year}",
+                                        text = "Official PYQ ${currentQuestion.year}",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
                                         color = Color(0xFF33691E),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            } else {
+                                Surface(
+                                    color = Color(0xFFEDE7F6),
+                                    shape = RoundedCornerShape(6.dp)
+                                ) {
+                                    Text(
+                                        text = if (questionLang == AppLanguage.ENGLISH) "AI Practice (JEE Main Style)" else "एआई अभ्यास प्रश्न (जेईई मेन)",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF4A148C),
                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                     )
                                 }

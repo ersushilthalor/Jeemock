@@ -93,17 +93,17 @@ object Strings {
 
     fun questionTypeLabel(type: com.example.data.model.QuestionType, lang: AppLanguage): String = when (type) {
         com.example.data.model.QuestionType.MCQ -> if (lang == AppLanguage.ENGLISH) "Single Choice MCQ (+4, -1)" else "एकल विकल्प प्रश्न (+4, -1)"
-        com.example.data.model.QuestionType.NUMERICAL -> if (lang == AppLanguage.ENGLISH) "Numerical Value Type (+4, 0)" else "संख्यात्मक मान प्रकार (+4, 0)"
+        com.example.data.model.QuestionType.NUMERICAL -> if (lang == AppLanguage.ENGLISH) "Numerical Value Type (+4, -1)" else "संख्यात्मक मान प्रकार (+4, -1)"
     }
 
     fun genuineBadge(session: String?, lang: AppLanguage): String = when (lang) {
-        AppLanguage.ENGLISH -> "GENUINE PYQ • ${session ?: "Official JEE"}"
-        AppLanguage.HINDI -> "प्रामाणिक विगत वर्ष • ${session ?: "आधिकारिक जेईई"}"
+        AppLanguage.ENGLISH -> "GENUINE PYQ • ${session ?: "Official JEE Main"}"
+        AppLanguage.HINDI -> "प्रामाणिक विगत वर्ष • ${session ?: "आधिकारिक जेईई मेन"}"
     }
 
     fun aiGeneratedBadge(lang: AppLanguage): String = when (lang) {
-        AppLanguage.ENGLISH -> "GEMINI AI GENERATED • Validated"
-        AppLanguage.HINDI -> "जेमिनी एआई जनरेटेड • सत्यापित"
+        AppLanguage.ENGLISH -> "AI Practice (JEE Main Pattern)"
+        AppLanguage.HINDI -> "एआई अभ्यास प्रश्न (जेईई मेन पैटर्न)"
     }
 
     // Question Legend
